@@ -6,30 +6,31 @@ const Stock = require('../models/Stock');
 
 module.exports = function (app) {
 
-  // Hash IP for GDPR-friendly storage
+  // Hash IP (GDPR friendly)
   function hashIP(ip) {
-    return crypto
-      .createHash('sha256')
-      .update(ip)
-      .digest('hex');
+    return crypto.createHash('sha256').update(ip).digest('hex');
   }
 
-  async function getStockPrice(symbol) {
-    const res = await fetch(
+  async function getPrice(symbol) {
+    const response = await fetch(
       `https://stock-price-checker-proxy.freecodecamp.rocks/v1/stock/${symbol}/quote`
     );
-    const data = await res.json();
+    const data = await response.json();
     return data.latestPrice;
   }
 
-  async function handleStock(symbol, like, ip) {
+  async function processStock(symbol, like, ip) {
     const hashedIP = hashIP(ip);
-    const price = await getStockPrice(symbol);
+    const price = await getPrice(symbol);
 
     let stock = await Stock.findOne({ symbol });
 
     if (!stock) {
-      stock = new Stock({ symbol });
+      stock = new Stock({
+        symbol,
+        likes: 0,
+        ips: []
+      });
     }
 
     if (like && !stock.ips.includes(hashedIP)) {
@@ -51,11 +52,10 @@ module.exports = function (app) {
       let { stock, like } = req.query;
       like = like === 'true';
 
+      // TWO STOCKS
       if (Array.isArray(stock)) {
-        const [s1, s2] = stock;
-
-        const stock1 = await handleStock(s1, like, req.ip);
-        const stock2 = await handleStock(s2, like, req.ip);
+        const stock1 = await processStock(stock[0], like, req.ip);
+        const stock2 = await processStock(stock[1], like, req.ip);
 
         return res.json({
           stockData: [
@@ -73,10 +73,18 @@ module.exports = function (app) {
         });
       }
 
-      const data = await handleStock(stock, like, req.ip);
-      res.json({ stockData: data });
+      // ONE STOCK
+      const data = await processStock(stock, like, req.ip);
 
-    } catch (err) {
+      res.json({
+        stockData: {
+          stock: data.stock,
+          price: data.price,
+          likes: data.likes
+        }
+      });
+
+    } catch (error) {
       res.status(500).json({ error: 'Server error' });
     }
   });
